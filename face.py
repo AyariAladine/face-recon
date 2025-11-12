@@ -20,15 +20,8 @@ load_dotenv(dotenv_path=env_path)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown"""
-    # Startup
-    print("Starting face model preload...")
-    loop = asyncio.get_running_loop()
-    try:
-        await loop.run_in_executor(None, get_face_app)
-        print("✓ Face model preloaded successfully")
-    except Exception as e:
-        print(f"⚠ Warning: Failed to preload face model at startup: {e}")
-        print("The model will be downloaded on first request (this may take 5-10 minutes)")
+    # Startup - DON'T preload model to save memory
+    print("API started. Face model will load on first request to save memory.")
 
     yield
 
@@ -38,10 +31,15 @@ async def lifespan(app: FastAPI):
 
 api = FastAPI(title="Face Recognition API", version="1.0.0", lifespan=lifespan)
 
-# Add CORS middleware for Next.js
+# Add CORS middleware for Next.js - Updated for Vercel
 api.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3001", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3001",
+        "http://localhost:3000",
+        "https://riseup-tawny.vercel.app",  # Your Vercel production URL
+        "https://*.vercel.app"  # All Vercel preview deployments
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -85,11 +83,13 @@ def get_face_app():
         with face_app_lock:
             if face_app is None:
                 try:
+                    print("Loading face model for the first time (this may take 30-60 seconds)...")
                     from insightface.app import FaceAnalysis
                     _app = FaceAnalysis(providers=['CPUExecutionProvider'])
                     _app.prepare(ctx_id=0, det_size=(640, 640))
                     face_app = _app
                     face_app_ready = True
+                    print("✓ Face model loaded successfully")
                 except Exception as e:
                     face_app = None
                     face_app_ready = False
@@ -106,7 +106,7 @@ def ensure_face_app_or_503():
     except Exception as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Face model is not ready yet. The model is downloading (this can take 5-10 minutes on first run). Please try again later. Error: {str(e)}"
+            detail=f"Face model is loading (first request takes 30-60 seconds). Please try again in a moment. Error: {str(e)}"
         )
 
 
